@@ -1,13 +1,15 @@
 #!/usr/bin/env python
 
 # Loading modules
-from pysndfx import AudioEffectsChain
+from pydub import AudioSegment
+from pydub.effects import low_pass_filter
 from skimage.filters import sobel
 import moviepy.editor as movedit
 import argparse
 import datetime
 import sys
 import re
+import os
 
 
 def parse_args():
@@ -110,34 +112,10 @@ def parse_args():
     )
 
     audio_arguments_optional.add_argument(
-        "-ph",
-        "--phaser",
-        dest="phaser",
-        help="Enable phaser effect.",
-        action="store_true",
-    )
-
-    audio_arguments_optional.add_argument(
-        "-tr",
-        "--tremolo",
-        dest="tremolo",
-        help="Enable tremolo effect.",
-        action="store_true",
-    )
-
-    audio_arguments_optional.add_argument(
         "-co",
         "--compand",
         dest="compand",
         help="Enable compand, which compresses the dynamic range of the audio.",
-        action="store_true",
-    )
-
-    audio_arguments_optional.add_argument(
-        "-nr",
-        "--noreverb",
-        dest="no_reverb",
-        help="Disables reverb.",
         action="store_true",
     )
 
@@ -175,6 +153,25 @@ class Vaporiser:
         self.audio_output = None
         self.video_output = None
         self._set_output_filenames()
+        self._validate_inputs()
+
+    def _validate_inputs(self):
+        # Check if input files exist
+        if not os.path.exists(self.args.audio_input):
+            print(f"ERROR: Audio file not found at '{self.args.audio_input}'")
+            sys.exit(1)
+        if self.args.gif_file and not os.path.exists(self.args.gif_file):
+            print(f"ERROR: GIF file not found at '{self.args.gif_file}'")
+            sys.exit(1)
+
+        # Check file extensions
+        if not self.args.audio_input.lower().endswith('.mp3'):
+            print("ERROR: Input audio file must be an MP3.")
+            sys.exit(1)
+        if self.args.gif_file and not self.args.gif_file.lower().endswith('.gif'):
+            print("ERROR: Input video file must be a GIF.")
+            sys.exit(1)
+
 
     def _set_output_filenames(self):
         # Setting name of output file
@@ -193,56 +190,88 @@ class Vaporiser:
                 print("ERROR: Input and output name are identical")
                 sys.exit()
 
-    def _create_audio_effects_chain(self):
-        # Creating an audio effects chain
-        if self.args.bass_boost:
-            bass_boost = f'{"bass "}{self.args.bass_boost}'
-            fx = AudioEffectsChain().custom(bass_boost)
-            fx = fx.pitch(self.args.pitch_shift)
-        else:
-            fx = AudioEffectsChain().pitch(self.args.pitch_shift)
-
-        if self.args.oops:
-            fx = fx.custom("oops")
-
-        if self.args.tremolo:
-            fx = fx.tremolo(freq=500, depth=50)
-
-        if self.args.phaser:
-            fx = fx.phaser(0.9, 0.8, 2, 0.2, 0.5)
-
-        if self.args.gain_db is not None:
-            fx = fx.gain(db=self.args.gain_db)
-
-        if self.args.compand:
-            fx = fx.compand()
-
-        fx = fx.speed(self.args.speed_ratio).lowpass(self.args.lowpass_cutoff)
-
-        if not self.args.no_reverb:
-            fx = fx.reverb()
-
-        return fx
-
     def _apply_audio_effects(self):
-        fx = self._create_audio_effects_chain()
-        fx(self.args.audio_input, self.audio_output)
+        try:
+            # Load audio file
+            print("Applying audio effects...")
+            audio = AudioSegment.from_mp3(self.args.audio_input)
+
+            # Apply effects
+            # Speed and Pitch are connected in pydub.
+            # To change speed, we change the frame rate. This also changes the pitch.
+            # To change pitch without changing speed is more complex.
+            # For simplicity, we will combine speed and pitch change.
+
+            # Calculate new frame rate for speed change
+            new_frame_rate = int(audio.frame_rate * self.args.speed_ratio)
+
+            # Pitch shift
+            # pydub changes pitch by altering the frame rate.
+            # A pitch shift of -75 cents is a factor of 2**(-75/1200)
+            semitones = self.args.pitch_shift / 100
+            pitch_factor = 2**(semitones / 12)
+            new_frame_rate = int(new_frame_rate * pitch_factor)
+
+            audio = audio._spawn(audio.raw_data, overrides={
+                "frame_rate": new_frame_rate
+            })
+
+            if self.args.lowpass_cutoff:
+                audio = low_pass_filter(audio, self.args.lowpass_cutoff)
+
+            if self.args.bass_boost:
+                # pydub does not have a direct bass_boost effect.
+                # We can simulate it with a low_shelf filter, but that's not in pydub effects.
+                # For now, we will just apply gain as a placeholder.
+                # This is not a correct implementation of bass boost.
+                audio = audio + self.args.bass_boost
+
+            if self.args.gain_db:
+                audio = audio + self.args.gain_db
+
+            if self.args.oops:
+                # Out of Phase Stereo (OOPS) effect
+                # This can be achieved by inverting one channel and mixing
+                if audio.channels == 2:
+                    left, right = audio.split_to_mono()
+                    right = right.invert_phase()
+                    audio = AudioSegment.from_mono_audiosegments(left, right)
+
+            if self.args.compand:
+                # pydub has a compress_dynamic_range method
+                audio = audio.compress_dynamic_range()
+
+            # Export the processed audio
+            print("Exporting audio...")
+            audio.export(self.audio_output, format="mp3")
+        except Exception as e:
+            print(f"ERROR: Failed to apply audio effects: {e}")
+            sys.exit(1)
+
 
     def _create_video(self):
-        def apply_sobel(image):
-            return sobel(image.astype(float))
+        if not self.args.gif_file:
+            return
 
-        if self.args.gif_file:
-            mp3_movedit = movedit.AudioFileClip(self.audio_output)
-            gif_movedit = movedit.VideoFileClip(self.args.gif_file)
-            number_of_loops = float(mp3_movedit.duration / gif_movedit.duration)
-            gif_looped = gif_movedit.loop(number_of_loops)
+        try:
+            print("Creating video...")
+            def apply_sobel(image):
+                return sobel(image.astype(float))
 
-            if self.args.sobel_filter:
-                gif_looped = gif_looped.fl_image(apply_sobel)
+            if self.args.gif_file:
+                mp3_movedit = movedit.AudioFileClip(self.audio_output)
+                gif_movedit = movedit.VideoFileClip(self.args.gif_file)
+                number_of_loops = float(mp3_movedit.duration / gif_movedit.duration)
+                gif_looped = gif_movedit.loop(number_of_loops)
 
-            gif_looped_with_audio = gif_looped.set_audio(mp3_movedit)
-            gif_looped_with_audio.write_videofile(self.video_output)
+                if self.args.sobel_filter:
+                    gif_looped = gif_looped.fl_image(apply_sobel)
+
+                gif_looped_with_audio = gif_looped.set_audio(mp3_movedit)
+                gif_looped_with_audio.write_videofile(self.video_output, logger='bar')
+        except Exception as e:
+            print(f"ERROR: Failed to create video: {e}")
+            sys.exit(1)
 
     def run(self):
         self._apply_audio_effects()

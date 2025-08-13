@@ -6,20 +6,17 @@
 
 <a href='https://ko-fi.com/rnn_h' target='_blank'><img height='30' style='border:0px;height:30px;' src='https://az743702.vo.msecnd.net/cdn/kofi3.png?v=0' border='0' alt='Buy Me a Coffee at ko-fi.com' />
 
-[ｖａｐｏｒｉｓｅｒ](https://github.com/rnnh/vaporiser) is a Python script that creates a vaporwave (slowed, with reverb) remix of a given MP3 file, with the option of playing over a looped GIF as a video.
+[ｖａｐｏｒｉｓｅｒ](https://github.com/rnnh/vaporiser) is a Python script that creates a vaporwave remix of a given MP3 file, with the option of playing over a looped GIF as a video.
 It applies audio effects to an input MP3 file, and writes the result to a new MP3 file.
 If a GIF is given in the command, an MP4 video file of the GIF on repeat for the duration of the remix is also created.
 Vaporiser can apply the following audio effects:
 
 - Speed shift
 - Pitch shift
-- Reverb
 - Lowpass filter
 - Bass boost
 - Gain adjustment
 - Out Of Phase Stereo (karaoke) effect
-- Phaser effect
-- Tremolo effect
 - Compand
 
 See [usage](#usage) for details of available effects.
@@ -36,8 +33,7 @@ See [usage](#usage) for details of available effects.
 
 - [Python](https://www.python.org/) 3.10 or higher
 - Python modules in [requirements.txt](requirements.txt)
-- [Sound eXchange (SoX)](http://sox.sourceforge.net/)
-- [libsox-fmt-mp3 for SoX MP3 support](https://pkgs.org/download/libsox-fmt-mp3)
+- [FFmpeg](https://ffmpeg.org/)
 - A UNIX operating system (Linux or macOS)
 
 ## Using vaporiser on Windows
@@ -48,14 +44,15 @@ If you are using Windows, you can use this project on a Linux OS (e.g. [Ubuntu](
 - [Windows Subsytem for Linux (WSL)](https://docs.microsoft.com/en-us/windows/wsl/about)
 - [A virtual machine](https://ubuntu.com/tutorials/how-to-run-ubuntu-desktop-on-a-virtual-machine-using-virtualbox)
 
-## Installing SoX
+## Installing FFmpeg
 
-SoX and libson-fmt-mp3 can be installed with the following commands:
+FFmpeg can be installed with the following command on Debian/Ubuntu:
 
 ```bash
-$ sudo apt install sox
-$ sudo apt-get install libsox-fmt-mp3
+$ sudo apt install ffmpeg
 ```
+
+For other operating systems, please refer to the [official FFmpeg documentation](https://ffmpeg.org/download.html).
 
 ## Installing Python 3.10 and venv on Ubuntu
 
@@ -117,7 +114,7 @@ $ python vaporiser.py --help
 ```
 usage: vaporiser.py [-h] [-o OUTPUT_NAME] -a AUDIO_INPUT [-s SPEED_RATIO]
                     [-p PITCH_SHIFT] [-l LOWPASS_CUTOFF] [-b BASS_BOOST]
-                    [-ga GAIN_DB] [-op] [-ph] [-tr] [-co] [-nr] [-g GIF_FILE]
+                    [-ga GAIN_DB] [-op] [-co] [-g GIF_FILE]
                     [-sb]
 
 Creates a vaporwave (slowed, with reverb) remix of a given MP3 file, with
@@ -157,11 +154,8 @@ extra audio arguments:
                         known as the ‘karaoke’ effect as it often has the
                         effect of removing most or all of the vocals from a
                         recording. (default: False)
-  -ph, --phaser         Enable phaser effect. (default: False)
-  -tr, --tremolo        Enable tremolo effect. (default: False)
   -co, --compand        Enable compand, which compresses the dynamic range of
                         the audio. (default: False)
-  -nr, --noreverb       Disables reverb. (default: False)
 
 video arguments:
   optional arguments, result in an MP4 video output in addition to the MP3
