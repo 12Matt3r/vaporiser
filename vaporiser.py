@@ -10,7 +10,7 @@ import sys
 import re
 
 
-def main():
+def parse_args():
     # Parsing for command line arguments
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -166,89 +166,98 @@ def main():
         action="store_true",
     )
 
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    # Setting name of output file
-    if args.output_name is None:
-        # If no output name is given, add "_vaporised" to input audio file name
-        audio_input_string = re.sub(".mp3", "", str(args.audio_input))
-        audio_output = audio_input_string + "_vaporised.mp3"
-        video_output = audio_input_string + "_vaporised.mp4"
-    else:
-        # Otherwise, use the output file name given via the command line
-        output_string = re.sub(".mp3", "", str(args.output_name))
-        output_string = re.sub(".mp4", "", str(output_string))
-        audio_output = output_string + ".mp3"
-        video_output = output_string + ".mp4"
-        if args.audio_input == args.output_name:
-            print("ERROR: Input and output name are identical")
-            sys.exit()
 
-    # Creating an audio effects chain, beginning with...
-    if args.bass_boost:
-        # ...bass boost effect
-        bass_boost = f'{"bass "}{args.bass_boost}'
-        fx = AudioEffectsChain().custom(bass_boost)
-        fx = fx.pitch(args.pitch_shift)
-    else:
-        # ...pitch shift
-        fx = AudioEffectsChain().pitch(args.pitch_shift)
+class Vaporiser:
+    def __init__(self, args):
+        self.args = args
+        self.audio_output = None
+        self.video_output = None
+        self._set_output_filenames()
 
-    # Adding OOPS to audio effects chain
-    if args.oops:
-        fx = fx.custom("oops")
+    def _set_output_filenames(self):
+        # Setting name of output file
+        if self.args.output_name is None:
+            # If no output name is given, add "_vaporised" to input audio file name
+            audio_input_string = re.sub(".mp3", "", str(self.args.audio_input))
+            self.audio_output = audio_input_string + "_vaporised.mp3"
+            self.video_output = audio_input_string + "_vaporised.mp4"
+        else:
+            # Otherwise, use the output file name given via the command line
+            output_string = re.sub(".mp3", "", str(self.args.output_name))
+            output_string = re.sub(".mp4", "", str(output_string))
+            self.audio_output = output_string + ".mp3"
+            self.video_output = output_string + ".mp4"
+            if self.args.audio_input == self.args.output_name:
+                print("ERROR: Input and output name are identical")
+                sys.exit()
 
-    # Adding tremolo effect to the audio effects chain
-    if args.tremolo:
-        fx = fx.tremolo(freq=500, depth=50)
+    def _create_audio_effects_chain(self):
+        # Creating an audio effects chain
+        if self.args.bass_boost:
+            bass_boost = f'{"bass "}{self.args.bass_boost}'
+            fx = AudioEffectsChain().custom(bass_boost)
+            fx = fx.pitch(self.args.pitch_shift)
+        else:
+            fx = AudioEffectsChain().pitch(self.args.pitch_shift)
 
-    # Adding phaser to the audio effects chain
-    if args.phaser:
-        # fx.phaser(gain_in, gain_out, delay, decay, speed)
-        fx = fx.phaser(0.9, 0.8, 2, 0.2, 0.5)
+        if self.args.oops:
+            fx = fx.custom("oops")
 
-    # Adding gain to the audio effects chain
-    if args.gain_db is not None:
-        fx = fx.gain(db=args.gain_db)
+        if self.args.tremolo:
+            fx = fx.tremolo(freq=500, depth=50)
 
-    # Adding compand to the audio effects chain
-    if args.compand:
-        fx = fx.compand()
+        if self.args.phaser:
+            fx = fx.phaser(0.9, 0.8, 2, 0.2, 0.5)
 
-    # Adding lowpass filter, speed alteration to audio effects chain
-    fx = fx.speed(args.speed_ratio).lowpass(args.lowpass_cutoff)
+        if self.args.gain_db is not None:
+            fx = fx.gain(db=self.args.gain_db)
 
-    if args.no_reverb is False:
-        # Adding reverb to audio effects chain
-        fx = fx.reverb()
+        if self.args.compand:
+            fx = fx.compand()
 
-    # Applying audio effects
-    fx(args.audio_input, audio_output)
+        fx = fx.speed(self.args.speed_ratio).lowpass(self.args.lowpass_cutoff)
 
-    def apply_sobel(image):
-        # returns image with Sobel filter applied
-        return sobel(image.astype(float))
+        if not self.args.no_reverb:
+            fx = fx.reverb()
 
-    # Create video if a GIF file is provided
-    if args.gif_file is None:
-        # If no GIF is provided, exit here
+        return fx
+
+    def _apply_audio_effects(self):
+        fx = self._create_audio_effects_chain()
+        fx(self.args.audio_input, self.audio_output)
+
+    def _create_video(self):
+        def apply_sobel(image):
+            return sobel(image.astype(float))
+
+        if self.args.gif_file:
+            mp3_movedit = movedit.AudioFileClip(self.audio_output)
+            gif_movedit = movedit.VideoFileClip(self.args.gif_file)
+            number_of_loops = float(mp3_movedit.duration / gif_movedit.duration)
+            gif_looped = gif_movedit.loop(number_of_loops)
+
+            if self.args.sobel_filter:
+                gif_looped = gif_looped.fl_image(apply_sobel)
+
+            gif_looped_with_audio = gif_looped.set_audio(mp3_movedit)
+            gif_looped_with_audio.write_videofile(self.video_output)
+
+    def run(self):
+        self._apply_audio_effects()
+        self._create_video()
+
         print("Script finished at", datetime.datetime.now().strftime("%H:%M:%S"))
-        print("Vaporised MP3 file (audio):", audio_output)
-        sys.exit()
-    else:
-        # If a GIF is provided, loop it for the length of the vaporised audio file
-        mp3_movedit = movedit.AudioFileClip(audio_output)
-        gif_movedit = movedit.VideoFileClip(args.gif_file)
-        number_of_loops = float(mp3_movedit.duration / gif_movedit.duration)
-        gif_looped = gif_movedit.loop(number_of_loops)
-        # Applies Sobel filter to looped GIF, if --sobel is used
-        if args.sobel_filter:
-            gif_looped = gif_looped.fl_image(apply_sobel)
-        gif_looped_with_audio = gif_looped.set_audio(mp3_movedit)
-        gif_looped_with_audio.write_videofile(video_output)
-        print("Script finished at", datetime.datetime.now().strftime("%H:%M:%S"))
-        print("Vaporised MP3 file (audio):", audio_output)
-        print("Vaporised MP4 file (video):", video_output)
+        print("Vaporised MP3 file (audio):", self.audio_output)
+        if self.args.gif_file:
+            print("Vaporised MP4 file (video):", self.video_output)
+
+
+def main():
+    args = parse_args()
+    vaporiser = Vaporiser(args)
+    vaporiser.run()
 
 
 if __name__ == "__main__":

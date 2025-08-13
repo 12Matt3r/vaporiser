@@ -34,5 +34,7 @@ jobs:
           pip install --upgrade pip;
           pip install -r requirements.txt;
           
-      - name: Test script by printing help text
-        run: python vaporiser.py --help
+      - name: Run tests
+        run: |
+          source env/bin/activate;
+          pytest;
