@@ -1,9 +1,9 @@
 # app.py
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, url_for
 from werkzeug.utils import secure_filename
 import os
 import uuid
-from audio_processor import process_audio
+from tasks import slushify_task # Import the celery task
 
 app = Flask(__name__)
 # Note: In a real app, these would be configured properly.
@@ -28,35 +28,50 @@ def slushify():
         return jsonify(error="No selected file"), 400
 
     if file:
-        # Save the uploaded file
         filename = secure_filename(file.filename)
         unique_id = str(uuid.uuid4())
         input_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{unique_id}_{filename}")
         file.save(input_path)
 
-        # Define output path
         output_filename = f"{unique_id}_slushed_{filename}"
         output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
 
-        # --- Call the refactored function ---
-        # For now, use default options. Later, these will come from the request.
-        try:
-            audio_out = process_audio(input_path, output_path)
+        # --- Dispatch the Celery task ---
+        task = slushify_task.delay(input_path, output_path)
 
-            # Clean up input file
-            os.remove(input_path)
+        # Return a response that includes the URL to check the task status
+        return jsonify(
+            task_id=task.id,
+            status_url=url_for('taskstatus', task_id=task.id, _external=True)
+        ), 202 # 202 Accepted
 
-            response = {
-                'message': 'Processing successful!',
-                'audio_output': audio_out
-            }
-            return jsonify(response)
-
-        except Exception as e:
-            # Clean up input file even if processing fails
-            if os.path.exists(input_path):
-                os.remove(input_path)
-            return jsonify(error=str(e)), 500
+@app.route('/api/status/<task_id>')
+def taskstatus(task_id):
+    task = slushify_task.AsyncResult(task_id)
+    if task.state == 'PENDING':
+        # Job did not start yet
+        response = {
+            'state': task.state,
+            'status': 'Pending...'
+        }
+    elif task.state == 'PROGRESS':
+        response = {
+            'state': task.state,
+            'status': task.info.get('status', '')
+        }
+    elif task.state == 'SUCCESS':
+        response = {
+            'state': task.state,
+            'status': 'Task completed!',
+            'result': task.info.get('result')
+        }
+    else: # state == 'FAILURE'
+        # Something went wrong in the background job
+        response = {
+            'state': task.state,
+            'status': str(task.info),  # This is the exception raised
+        }
+    return jsonify(response)
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
