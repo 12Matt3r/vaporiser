@@ -1,0 +1,6 @@
+Flask
+pysndfx
+librosa
+celery
+redis
+numpy
