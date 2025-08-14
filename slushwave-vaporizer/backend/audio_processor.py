@@ -5,6 +5,21 @@ import librosa
 import numpy as np
 import sys
 import re
+import json
+import os
+
+# --- Preset Loading ---
+def load_presets():
+    """Loads presets from presets.json"""
+    preset_path = os.path.join(os.path.dirname(__file__), 'presets.json')
+    try:
+        with open(preset_path, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"ERROR: presets.json not found at {preset_path}")
+        return {}
+
+PRESETS = load_presets()
 
 def analyze_audio(input_path):
     """
@@ -16,12 +31,9 @@ def analyze_audio(input_path):
     try:
         y, sr = librosa.load(input_path)
 
-        # Get tempo
         tempo = librosa.feature.tempo(y=y, sr=sr)[0]
 
-        # Get chroma features for key detection
         chromagram = librosa.feature.chroma_stft(y=y, sr=sr)
-        # Use a simple method to estimate key from chroma
         chroma_mean = np.mean(chromagram, axis=1)
         key_idx = np.argmax(chroma_mean)
         notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
@@ -38,26 +50,26 @@ def analyze_audio(input_path):
 def process_audio(input_path, output_path, options=None):
     """
     Applies a chain of audio effects to the input file and saves it to the output file.
-
-    :param input_path: Path to the input audio file.
-    :param output_path: Path to save the processed audio file.
-    :param options: A dictionary of effects and their parameters.
-    :return: Path to the processed audio file.
     """
     if options is None:
         options = {}
 
-    # --- New: Analyze audio to get features ---
+    # --- Apply Preset ---
+    preset_name = options.get('preset')
+    if preset_name and preset_name in PRESETS:
+        # Use preset as a base, but allow overrides from other options
+        base_options = PRESETS[preset_name].copy()
+        base_options.update(options)
+        options = base_options
+
     analysis = analyze_audio(input_path)
     if analysis:
         print(f"Audio Analysis Results: {analysis}")
-        # In the future, these values will override the default options
-        # For example: options['speed_ratio'] = calculate_new_speed(analysis['tempo'])
 
-    # Default values similar to original script
+    # Get effect parameters from options, with defaults
     speed_ratio = options.get('speed_ratio', 0.75)
     pitch_shift = options.get('pitch_shift', -75)
-    lowpass_cutoff = options.get('lowpass_cutoff', 3500)
+    lowpass_cutoff = options.get('lowpass_cutoff', None) # Allow null
     bass_boost = options.get('bass_boost', None)
     gain_db = options.get('gain_db', None)
     oops = options.get('oops', False)
@@ -67,38 +79,41 @@ def process_audio(input_path, output_path, options=None):
     no_reverb = options.get('no_reverb', False)
 
     # Creating an audio effects chain
+    fx = AudioEffectsChain()
+
     if bass_boost:
-        fx = AudioEffectsChain().custom(f'bass {bass_boost}')
-        fx = fx.pitch(pitch_shift)
-    else:
-        fx = AudioEffectsChain().pitch(pitch_shift)
+        fx.custom(f'bass {bass_boost}')
+
+    if pitch_shift is not None:
+        fx.pitch(pitch_shift)
 
     if oops:
-        fx = fx.custom("oops")
+        fx.custom("oops")
 
     if tremolo:
-        fx = fx.tremolo(freq=500, depth=50)
+        fx.tremolo(freq=500, depth=50)
 
     if phaser:
-        fx = fx.phaser(0.9, 0.8, 2, 0.2, 0.5)
+        fx.phaser(0.9, 0.8, 2, 0.2, 0.5)
 
     if gain_db is not None:
-        fx = fx.gain(db=gain_db)
+        fx.gain(db=gain_db)
 
     if compand:
-        fx = fx.compand()
+        fx.compand()
 
-    fx = fx.speed(speed_ratio).lowpass(lowpass_cutoff)
+    if speed_ratio is not None:
+        fx.speed(speed_ratio)
+
+    if lowpass_cutoff is not None:
+        fx.lowpass(lowpass_cutoff)
 
     if not no_reverb:
-        fx = fx.reverb()
+        fx.reverb()
 
-    # Applying audio effects
-    # This will fail if SoX is not installed
     try:
         fx(input_path, output_path)
     except Exception as e:
-        # Provide a more informative error if SoX is likely missing
         if "sox: not found" in str(e) or "SoX" in str(e):
              raise RuntimeError("SoX command not found. Please ensure SoX is installed and in your system's PATH.") from e
         raise e

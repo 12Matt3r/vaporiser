@@ -1,0 +1,35 @@
+{
+  "slushwave": {
+    "description": "The classic slowed, pitched-down, and reverbed sound.",
+    "speed_ratio": 0.75,
+    "pitch_shift": -75,
+    "lowpass_cutoff": 3500,
+    "no_reverb": false,
+    "phaser": true,
+    "tremolo": false,
+    "bass_boost": null,
+    "compand": true
+  },
+  "nightcore": {
+    "description": "A faster, higher-pitched version of a track.",
+    "speed_ratio": 1.25,
+    "pitch_shift": 300,
+    "lowpass_cutoff": null,
+    "bass_boost": 3,
+    "no_reverb": true,
+    "phaser": false,
+    "tremolo": false,
+    "compand": false
+  },
+  "chopped_and_screwed": {
+    "description": "An extremely slowed-down version with a prominent tremolo effect.",
+    "speed_ratio": 0.6,
+    "pitch_shift": -200,
+    "lowpass_cutoff": 4000,
+    "bass_boost": 5,
+    "no_reverb": false,
+    "phaser": false,
+    "tremolo": true,
+    "compand": true
+  }
+}

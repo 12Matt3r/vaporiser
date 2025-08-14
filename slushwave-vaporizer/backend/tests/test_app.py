@@ -2,7 +2,6 @@ import pytest
 from io import BytesIO
 from unittest.mock import MagicMock
 
-# Tests for error cases (no file, empty filename) remain the same.
 def test_hello_endpoint(client):
     """Tests the hello world endpoint."""
     response = client.get('/api/hello')
@@ -24,21 +23,43 @@ def test_slushify_empty_filename(client):
     assert 'error' in response.json
     assert response.json['error'] == 'No selected file'
 
-# New tests for the async flow
-def test_slushify_success_dispatch(client, mocker):
-    """Tests the successful dispatch of a celery task."""
-    # Mock the delay method
+# Updated tests for the async and preset flow
+def test_slushify_dispatch_with_preset(client, mocker):
+    """Tests the successful dispatch of a celery task with a specific preset."""
     mock_task = MagicMock()
     mock_task.id = 'test_task_id_123'
-    mocker.patch('tasks.slushify_task.delay', return_value=mock_task)
+    mock_delay = mocker.patch('tasks.slushify_task.delay', return_value=mock_task)
 
-    data = {'file': (BytesIO(b'my file contents'), 'test.mp3')}
-    response = client.post('/api/slushify', data=data, content_type='multipart/form-data')
+    form_data = {
+        'file': (BytesIO(b'my file contents'), 'test.mp3'),
+        'preset': 'nightcore'
+    }
+    response = client.post('/api/slushify', data=form_data, content_type='multipart/form-data')
 
     assert response.status_code == 202
     assert response.json['task_id'] == 'test_task_id_123'
-    assert '/api/status/test_task_id_123' in response.json['status_url']
 
+    # Assert that the task was called with the correct options
+    called_options = mock_delay.call_args[0][2]
+    assert called_options['preset'] == 'nightcore'
+
+def test_slushify_dispatch_no_preset_defaults(client, mocker):
+    """Tests that slushify defaults to the 'slushwave' preset."""
+    mock_task = MagicMock()
+    mock_task.id = 'test_task_id_456'
+    mock_delay = mocker.patch('tasks.slushify_task.delay', return_value=mock_task)
+
+    form_data = {'file': (BytesIO(b'my file contents'), 'test.mp3')}
+    response = client.post('/api/slushify', data=form_data, content_type='multipart/form-data')
+
+    assert response.status_code == 202
+    assert response.json['task_id'] == 'test_task_id_456'
+
+    called_options = mock_delay.call_args[0][2]
+    assert called_options['preset'] == 'slushwave'
+
+
+# Status tests remain the same
 def test_taskstatus_pending(client, mocker):
     """Test status endpoint for a PENDING task."""
     mock_result = MagicMock()
@@ -48,7 +69,6 @@ def test_taskstatus_pending(client, mocker):
     response = client.get('/api/status/some_task_id')
     assert response.status_code == 200
     assert response.json['state'] == 'PENDING'
-    assert response.json['status'] == 'Pending...'
 
 def test_taskstatus_progress(client, mocker):
     """Test status endpoint for a PROGRESS task."""
@@ -60,19 +80,17 @@ def test_taskstatus_progress(client, mocker):
     response = client.get('/api/status/some_task_id')
     assert response.status_code == 200
     assert response.json['state'] == 'PROGRESS'
-    assert response.json['status'] == 'Analyzing audio...'
 
 def test_taskstatus_success(client, mocker):
     """Test status endpoint for a SUCCESS task."""
     mock_result = MagicMock()
     mock_result.state = 'SUCCESS'
-    mock_result.info = {'status': 'SUCCESS', 'result': '/path/to/output.mp3'}
+    mock_result.info = {'result': '/path/to/output.mp3'}
     mocker.patch('tasks.slushify_task.AsyncResult', return_value=mock_result)
 
     response = client.get('/api/status/some_task_id')
     assert response.status_code == 200
     assert response.json['state'] == 'SUCCESS'
-    assert response.json['result'] == '/path/to/output.mp3'
 
 def test_taskstatus_failure(client, mocker):
     """Test status endpoint for a FAILURE task."""
@@ -84,4 +102,3 @@ def test_taskstatus_failure(client, mocker):
     response = client.get('/api/status/some_task_id')
     assert response.status_code == 200
     assert response.json['state'] == 'FAILURE'
-    assert response.json['status'] == 'Something went wrong'

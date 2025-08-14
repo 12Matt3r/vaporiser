@@ -24,6 +24,10 @@ def slushify():
     if 'file' not in request.files:
         return jsonify(error="No file part"), 400
     file = request.files['file']
+
+    # Get preset from form data, default to 'slushwave' if not provided
+    preset = request.form.get('preset', 'slushwave')
+
     if file.filename == '':
         return jsonify(error="No selected file"), 400
 
@@ -36,8 +40,9 @@ def slushify():
         output_filename = f"{unique_id}_slushed_{filename}"
         output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
 
-        # --- Dispatch the Celery task ---
-        task = slushify_task.delay(input_path, output_path)
+        # Pass the preset in the options dictionary to the Celery task
+        options = {'preset': preset}
+        task = slushify_task.delay(input_path, output_path, options)
 
         # Return a response that includes the URL to check the task status
         return jsonify(
