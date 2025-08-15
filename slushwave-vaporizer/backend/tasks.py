@@ -1,9 +1,10 @@
 from celery import Celery
 from audio_processor import process_audio
 import os
+import time
+from datetime import timedelta
 
 # Assume Redis is running on the default port.
-# The user will configure this in their Replit environment.
 CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
 
@@ -12,6 +13,16 @@ celery_app = Celery(
     broker=CELERY_BROKER_URL,
     backend=CELERY_RESULT_BACKEND
 )
+
+# Configure Celery Beat schedule
+celery_app.conf.beat_schedule = {
+    'delete-old-files-every-hour': {
+        'task': 'tasks.cleanup_old_files',
+        'schedule': timedelta(hours=1),
+    },
+}
+celery_app.conf.timezone = 'UTC'
+
 
 @celery_app.task(bind=True)
 def slushify_task(self, input_path, original_filename, options=None):
@@ -22,7 +33,6 @@ def slushify_task(self, input_path, original_filename, options=None):
     try:
         self.update_state(state='PROGRESS', meta={'status': 'Initializing...'})
 
-        # Determine output path based on task ID
         output_dir = 'slushwave-vaporizer/backend/outputs'
         file_ext = os.path.splitext(original_filename)[1]
         output_filename = f"{self.request.id}{file_ext}"
@@ -39,3 +49,36 @@ def slushify_task(self, input_path, original_filename, options=None):
         if os.path.exists(input_path):
             os.remove(input_path)
         raise e
+
+@celery_app.task
+def cleanup_old_files(now=None):
+    """
+    Deletes files in the output directory that are older than 1 hour.
+    The 'now' parameter is for testability.
+    """
+    print("Running cleanup task...")
+    if now is None:
+        now = time.time()
+
+    output_dir = 'slushwave-vaporizer/backend/outputs'
+    one_hour_ago = now - 3600
+
+    if not os.path.isdir(output_dir):
+        print(f"Cleanup task: Output directory {output_dir} not found.")
+        return 0 # Return count of deleted files
+
+    deleted_count = 0
+    for filename in os.listdir(output_dir):
+        file_path = os.path.join(output_dir, filename)
+        if os.path.isfile(file_path):
+            try:
+                file_mod_time = os.path.getmtime(file_path)
+                if file_mod_time < one_hour_ago:
+                    os.remove(file_path)
+                    print(f"Deleted old file: {file_path}")
+                    deleted_count += 1
+            except OSError as e:
+                print(f"Error deleting file {file_path}: {e}")
+
+    print(f"Cleanup task finished. Deleted {deleted_count} files.")
+    return deleted_count
