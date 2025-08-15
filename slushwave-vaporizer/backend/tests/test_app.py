@@ -1,6 +1,7 @@
 import pytest
 from io import BytesIO
 from unittest.mock import MagicMock
+import os
 
 def test_hello_endpoint(client):
     """Tests the hello world endpoint."""
@@ -145,3 +146,15 @@ def test_adjust_endpoint_bad_data(client, mocker):
 
     assert response.status_code == 400
     assert 'Invalid adjustment data' in response.json['error']
+
+def test_serve_output_file(client, mocker):
+    """Tests the file serving endpoint."""
+    mock_send = mocker.patch('app.send_from_directory', return_value="file content")
+
+    response = client.get('/api/outputs/test.mp3')
+
+    assert response.status_code == 200
+    assert response.data == b"file content"
+
+    expected_dir = os.path.abspath('slushwave-vaporizer/backend/outputs')
+    mock_send.assert_called_once_with(expected_dir, 'test.mp3')

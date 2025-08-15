@@ -1,5 +1,5 @@
 # app.py
-from flask import Flask, request, jsonify, url_for
+from flask import Flask, request, jsonify, url_for, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import os
@@ -10,7 +10,9 @@ app = Flask(__name__)
 CORS(app)
 
 app.config['UPLOAD_FOLDER'] = 'slushwave-vaporizer/backend/uploads'
+app.config['OUTPUT_FOLDER'] = 'slushwave-vaporizer/backend/outputs' # Define output folder config
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True) # Ensure it exists
 
 
 @app.route('/api/hello', methods=['GET'])
@@ -23,25 +25,25 @@ def get_presets():
     preset_data = {name: details['description'] for name, details in PRESETS.items()}
     return jsonify(preset_data)
 
+@app.route('/api/outputs/<path:filename>')
+def serve_output_file(filename):
+    """Serves a file from the output directory."""
+    return send_from_directory(os.path.abspath(app.config['OUTPUT_FOLDER']), filename)
+
 @app.route('/api/slushify', methods=['POST'])
 def slushify():
     if 'file' not in request.files:
         return jsonify(error="No file part"), 400
     file = request.files['file']
-
     preset = request.form.get('preset', 'slushwave')
-
     if file.filename == '':
         return jsonify(error="No selected file"), 400
-
     if file:
         filename = secure_filename(file.filename)
         temp_input_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{uuid.uuid4()}_{filename}")
         file.save(temp_input_path)
-
         options = {'preset': preset}
         task = slushify_task.delay(temp_input_path, filename, options)
-
         return jsonify(
             task_id=task.id,
             status_url=url_for('taskstatus', task_id=task.id, _external=True)
@@ -62,21 +64,17 @@ def taskstatus(task_id):
 
 @app.route('/api/adjust/<original_task_id>', methods=['POST'])
 def adjust(original_task_id):
-    output_dir = 'slushwave-vaporizer/backend/outputs'
     original_file_path = None
-    if os.path.isdir(output_dir):
-        for f in os.listdir(output_dir):
+    if os.path.isdir(app.config['OUTPUT_FOLDER']):
+        for f in os.listdir(app.config['OUTPUT_FOLDER']):
             if f.startswith(original_task_id):
-                original_file_path = os.path.join(output_dir, f)
+                original_file_path = os.path.join(app.config['OUTPUT_FOLDER'], f)
                 break
-
     if not original_file_path or not os.path.exists(original_file_path):
         return jsonify(error="Original processed file not found."), 404
-
     adj_data = request.get_json()
     if not adj_data or 'effect_name' not in adj_data or 'effect_params' not in adj_data:
         return jsonify(error="Invalid adjustment data provided."), 400
-
     new_file_id = str(uuid.uuid4())
     task = adjust_task.delay(
         original_file_path,
@@ -84,11 +82,8 @@ def adjust(original_task_id):
         adj_data['effect_params'],
         new_file_id
     )
-
     return jsonify(
         task_id=task.id,
-        # It's important to note that the new filename is NOT the task.id anymore.
-        # The frontend would need to get the new filename from the result of this task.
         status_url=url_for('taskstatus', task_id=task.id, _external=True)
     ), 202
 
