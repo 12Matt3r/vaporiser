@@ -3,18 +3,13 @@ from audio_processor import process_audio
 import os
 import time
 from datetime import timedelta
+import effects
 
-# Assume Redis is running on the default port.
 CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
 
-celery_app = Celery(
-    'tasks',
-    broker=CELERY_BROKER_URL,
-    backend=CELERY_RESULT_BACKEND
-)
+celery_app = Celery('tasks', broker=CELERY_BROKER_URL, backend=CELERY_RESULT_BACKEND)
 
-# Configure Celery Beat schedule
 celery_app.conf.beat_schedule = {
     'delete-old-files-every-hour': {
         'task': 'tasks.cleanup_old_files',
@@ -23,12 +18,11 @@ celery_app.conf.beat_schedule = {
 }
 celery_app.conf.timezone = 'UTC'
 
-
 @celery_app.task(bind=True)
 def slushify_task(self, input_path, original_filename, options=None):
     """
     Celery task to process an audio file.
-    It now determines its own output path based on its task ID.
+    It determines its own output path based on its task ID.
     """
     try:
         self.update_state(state='PROGRESS', meta={'status': 'Initializing...'})
@@ -65,7 +59,7 @@ def cleanup_old_files(now=None):
 
     if not os.path.isdir(output_dir):
         print(f"Cleanup task: Output directory {output_dir} not found.")
-        return 0 # Return count of deleted files
+        return 0
 
     deleted_count = 0
     for filename in os.listdir(output_dir):
@@ -82,3 +76,22 @@ def cleanup_old_files(now=None):
 
     print(f"Cleanup task finished. Deleted {deleted_count} files.")
     return deleted_count
+
+@celery_app.task
+def adjust_task(base_file_path, effect_name, effect_params, new_file_id):
+    """
+    Applies a single adjustment to an existing audio file.
+    Uses new_file_id to name the output. This is not a bound task.
+    """
+    try:
+        output_dir = os.path.dirname(base_file_path)
+        _base_name, file_ext = os.path.splitext(os.path.basename(base_file_path))
+        output_filename = f"{new_file_id}{file_ext}"
+        output_path = os.path.join(output_dir, output_filename)
+
+        effect_func = getattr(effects, f"apply_{effect_name}")
+        effect_func(base_file_path, output_path, **effect_params)
+
+        return {'status': 'SUCCESS', 'result': output_path}
+    except Exception as e:
+        raise e

@@ -23,7 +23,6 @@ def test_slushify_empty_filename(client):
     assert 'error' in response.json
     assert response.json['error'] == 'No selected file'
 
-# Updated tests for the async and preset flow
 def test_slushify_dispatch_with_preset(client, mocker):
     """Tests the successful dispatch of a celery task with a specific preset."""
     mock_task = MagicMock()
@@ -39,7 +38,6 @@ def test_slushify_dispatch_with_preset(client, mocker):
     assert response.status_code == 202
     assert response.json['task_id'] == 'test_task_id_123'
 
-    # Assert that the task was called with the correct options
     called_options = mock_delay.call_args[0][2]
     assert called_options['preset'] == 'nightcore'
 
@@ -58,13 +56,12 @@ def test_slushify_dispatch_no_preset_defaults(client, mocker):
     called_options = mock_delay.call_args[0][2]
     assert called_options['preset'] == 'slushwave'
 
-
-# Status tests remain the same
+# Updated tests for the status endpoint
 def test_taskstatus_pending(client, mocker):
     """Test status endpoint for a PENDING task."""
     mock_result = MagicMock()
     mock_result.state = 'PENDING'
-    mocker.patch('tasks.slushify_task.AsyncResult', return_value=mock_result)
+    mocker.patch('app.celery_app.AsyncResult', return_value=mock_result)
 
     response = client.get('/api/status/some_task_id')
     assert response.status_code == 200
@@ -75,7 +72,7 @@ def test_taskstatus_progress(client, mocker):
     mock_result = MagicMock()
     mock_result.state = 'PROGRESS'
     mock_result.info = {'status': 'Analyzing audio...'}
-    mocker.patch('tasks.slushify_task.AsyncResult', return_value=mock_result)
+    mocker.patch('app.celery_app.AsyncResult', return_value=mock_result)
 
     response = client.get('/api/status/some_task_id')
     assert response.status_code == 200
@@ -86,7 +83,7 @@ def test_taskstatus_success(client, mocker):
     mock_result = MagicMock()
     mock_result.state = 'SUCCESS'
     mock_result.info = {'result': '/path/to/output.mp3'}
-    mocker.patch('tasks.slushify_task.AsyncResult', return_value=mock_result)
+    mocker.patch('app.celery_app.AsyncResult', return_value=mock_result)
 
     response = client.get('/api/status/some_task_id')
     assert response.status_code == 200
@@ -97,8 +94,54 @@ def test_taskstatus_failure(client, mocker):
     mock_result = MagicMock()
     mock_result.state = 'FAILURE'
     mock_result.info = 'Something went wrong'
-    mocker.patch('tasks.slushify_task.AsyncResult', return_value=mock_result)
+    mocker.patch('app.celery_app.AsyncResult', return_value=mock_result)
 
     response = client.get('/api/status/some_task_id')
     assert response.status_code == 200
     assert response.json['state'] == 'FAILURE'
+
+def test_adjust_endpoint_success(client, mocker):
+    """Tests the adjust endpoint for successful dispatch."""
+    mocker.patch('os.listdir', return_value=['original_task_id.mp3'])
+    mocker.patch('os.path.exists', return_value=True)
+
+    mock_task = MagicMock()
+    mock_task.id = 'adjust_task_456'
+    mock_delay = mocker.patch('app.adjust_task.delay', return_value=mock_task)
+
+    adj_data = {'effect_name': 'phaser', 'effect_params': {}}
+    response = client.post('/api/adjust/original_task_id', json=adj_data)
+
+    assert response.status_code == 202
+    assert response.json['task_id'] == 'adjust_task_456'
+
+    expected_base_path = 'slushwave-vaporizer/backend/outputs/original_task_id.mp3'
+    # Assert that delay was called, we don't need to be super specific
+    # about the new_file_id as it's a uuid.
+    assert mock_delay.call_count == 1
+    call_args = mock_delay.call_args[0]
+    assert call_args[0] == expected_base_path
+    assert call_args[1] == 'phaser'
+    assert call_args[2] == {}
+    assert isinstance(call_args[3], str) # new_file_id is a string
+
+def test_adjust_endpoint_file_not_found(client, mocker):
+    """Tests the adjust endpoint when the original file is not found."""
+    mocker.patch('os.listdir', return_value=['another_file.mp3'])
+
+    adj_data = {'effect_name': 'phaser', 'effect_params': {}}
+    response = client.post('/api/adjust/original_task_id', json=adj_data)
+
+    assert response.status_code == 404
+    assert 'Original processed file not found' in response.json['error']
+
+def test_adjust_endpoint_bad_data(client, mocker):
+    """Tests the adjust endpoint with invalid request data."""
+    mocker.patch('os.listdir', return_value=['original_task_id.mp3'])
+    mocker.patch('os.path.exists', return_value=True)
+
+    bad_data = {'effect_params': {}} # Missing 'effect_name'
+    response = client.post('/api/adjust/original_task_id', json=bad_data)
+
+    assert response.status_code == 400
+    assert 'Invalid adjustment data' in response.json['error']
