@@ -1,12 +1,11 @@
 # audio_processor.py
 
-from pysndfx import AudioEffectsChain
 import librosa
 import numpy as np
-import sys
-import re
 import json
 import os
+import uuid
+import effects # Import the new module
 
 # --- Preset Loading ---
 def load_presets():
@@ -22,100 +21,77 @@ def load_presets():
 PRESETS = load_presets()
 
 def analyze_audio(input_path):
-    """
-    Analyzes an audio file to extract musical features.
-
-    :param input_path: Path to the input audio file.
-    :return: A dictionary containing tempo (BPM) and key.
-    """
+    """Analyzes an audio file to extract musical features."""
     try:
         y, sr = librosa.load(input_path)
-
         tempo = librosa.feature.tempo(y=y, sr=sr)[0]
-
         chromagram = librosa.feature.chroma_stft(y=y, sr=sr)
         chroma_mean = np.mean(chromagram, axis=1)
         key_idx = np.argmax(chroma_mean)
         notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
         key = notes[key_idx]
-
-        return {
-            'tempo': round(tempo),
-            'key': key
-        }
+        return {'tempo': round(tempo), 'key': key}
     except Exception as e:
         print(f"Error during audio analysis: {e}")
         return None
 
 def process_audio(input_path, output_path, options=None):
     """
-    Applies a chain of audio effects to the input file and saves it to the output file.
+    Applies a chain of audio effects to the input file by calling
+    individual effect functions. Manages temporary files for the chain.
     """
     if options is None:
         options = {}
 
-    # --- Apply Preset ---
     preset_name = options.get('preset')
     if preset_name and preset_name in PRESETS:
-        # Use preset as a base, but allow overrides from other options
         base_options = PRESETS[preset_name].copy()
         base_options.update(options)
         options = base_options
 
-    analysis = analyze_audio(input_path)
-    if analysis:
-        print(f"Audio Analysis Results: {analysis}")
+    temp_files = []
+    current_input = input_path
 
-    # Get effect parameters from options, with defaults
-    speed_ratio = options.get('speed_ratio', 0.75)
-    pitch_shift = options.get('pitch_shift', -75)
-    lowpass_cutoff = options.get('lowpass_cutoff', None) # Allow null
-    bass_boost = options.get('bass_boost', None)
-    gain_db = options.get('gain_db', None)
-    oops = options.get('oops', False)
-    phaser = options.get('phaser', False)
-    tremolo = options.get('tremolo', False)
-    compand = options.get('compand', False)
-    no_reverb = options.get('no_reverb', False)
-
-    # Creating an audio effects chain
-    fx = AudioEffectsChain()
-
-    if bass_boost:
-        fx.custom(f'bass {bass_boost}')
-
-    if pitch_shift is not None:
-        fx.pitch(pitch_shift)
-
-    if oops:
-        fx.custom("oops")
-
-    if tremolo:
-        fx.tremolo(freq=500, depth=50)
-
-    if phaser:
-        fx.phaser(0.9, 0.8, 2, 0.2, 0.5)
-
-    if gain_db is not None:
-        fx.gain(db=gain_db)
-
-    if compand:
-        fx.compand()
-
-    if speed_ratio is not None:
-        fx.speed(speed_ratio)
-
-    if lowpass_cutoff is not None:
-        fx.lowpass(lowpass_cutoff)
-
-    if not no_reverb:
-        fx.reverb()
+    def get_temp_file():
+        # Using .wav for intermediate files is often more stable with SoX
+        temp_path = os.path.join(os.path.dirname(output_path), f"temp_{uuid.uuid4()}.wav")
+        temp_files.append(temp_path)
+        return temp_path
 
     try:
-        fx(input_path, output_path)
-    except Exception as e:
-        if "sox: not found" in str(e) or "SoX" in str(e):
-             raise RuntimeError("SoX command not found. Please ensure SoX is installed and in your system's PATH.") from e
-        raise e
+        # Dynamically build the chain of effects to apply
+        effect_chain = []
+        if options.get('bass_boost'): effect_chain.append(('bass_boost', {'gain': options['bass_boost']}))
+        if options.get('pitch_shift'): effect_chain.append(('pitch_shift', {'shift': options['pitch_shift']}))
+        if options.get('oops'): effect_chain.append(('oops', {}))
+        if options.get('tremolo'): effect_chain.append(('tremolo', {'freq': 500, 'depth': 50}))
+        if options.get('phaser'): effect_chain.append(('phaser', {}))
+        if options.get('gain_db'): effect_chain.append(('gain', {'db': options['gain_db']}))
+        if options.get('compand'): effect_chain.append(('compand', {}))
+        if options.get('speed_ratio'): effect_chain.append(('speed', {'ratio': options['speed_ratio']}))
+        if options.get('lowpass_cutoff'): effect_chain.append(('lowpass', {'cutoff': options['lowpass_cutoff']}))
+        if not options.get('no_reverb', False): effect_chain.append(('reverb', {}))
+
+        if not effect_chain:
+            # If no effects, just copy the file
+            import shutil
+            shutil.copy(current_input, output_path)
+            return output_path
+
+        # Execute the chain
+        for i, (effect_name, params) in enumerate(effect_chain):
+            is_last_effect = (i == len(effect_chain) - 1)
+            current_output = output_path if is_last_effect else get_temp_file()
+
+            effect_func = getattr(effects, f"apply_{effect_name}")
+            effect_func(current_input, current_output, **params)
+
+            current_input = current_output
+
+    finally:
+        # Cleanup temporary files
+        for temp_file in temp_files:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
 
     return output_path
