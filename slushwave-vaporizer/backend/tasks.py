@@ -14,27 +14,28 @@ celery_app = Celery(
 )
 
 @celery_app.task(bind=True)
-def slushify_task(self, input_path, output_path, options=None):
+def slushify_task(self, input_path, original_filename, options=None):
     """
     Celery task to process an audio file.
-    Wraps the process_audio function and provides status updates.
+    It now determines its own output path based on its task ID.
     """
     try:
-        self.update_state(state='PROGRESS', meta={'status': 'Analyzing audio...'})
-        # Note: The analysis is part of process_audio now.
-        # For more granular progress, process_audio could be split further.
+        self.update_state(state='PROGRESS', meta={'status': 'Initializing...'})
 
+        # Determine output path based on task ID
+        output_dir = 'slushwave-vaporizer/backend/outputs'
+        file_ext = os.path.splitext(original_filename)[1]
+        output_filename = f"{self.request.id}{file_ext}"
+        output_path = os.path.join(output_dir, output_filename)
+
+        self.update_state(state='PROGRESS', meta={'status': 'Processing audio...'})
         result_path = process_audio(input_path, output_path, options)
 
-        # Clean up the input file after successful processing
         if os.path.exists(input_path):
             os.remove(input_path)
 
         return {'status': 'SUCCESS', 'result': result_path}
     except Exception as e:
-        # Clean up the input file on failure as well
         if os.path.exists(input_path):
             os.remove(input_path)
-        # The state will be 'FAILURE' and task.info will contain the exception
-        # No need to return a custom dict here, Celery handles it.
         raise e

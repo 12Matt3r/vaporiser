@@ -4,3 +4,4 @@ librosa
 celery
 redis
 numpy
+Flask-Cors
