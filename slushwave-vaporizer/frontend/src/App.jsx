@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import UploadForm from './components/UploadForm';
+import StatusDisplay from './components/StatusDisplay';
+import ResultDisplay from './components/ResultDisplay';
 import './App.css';
 
 const API_BASE_URL = 'http://127.0.0.1:5000';
@@ -11,8 +14,14 @@ function App() {
   const [status, setStatus] = useState('Select a file to begin.');
   const [resultUrl, setResultUrl] = useState('');
   const [error, setError] = useState('');
-  const [taskId, setTaskId] = useState('');
 
+  // Task management state
+  const [primaryTaskId, setPrimaryTaskId] = useState('');
+  const [adjustmentTaskId, setAdjustmentTaskId] = useState('');
+  const [isAdjusting, setIsAdjusting] = useState(false);
+  const [originalTaskId, setOriginalTaskId] = useState(''); // The ID of the last successful primary task
+
+  // Fetch presets
   useEffect(() => {
     axios.get(`${API_BASE_URL}/api/presets`)
       .then(response => {
@@ -27,7 +36,9 @@ function App() {
       });
   }, []);
 
+  // Polling effect for BOTH primary and adjustment tasks
   useEffect(() => {
+    const taskId = primaryTaskId || adjustmentTaskId;
     if (!taskId) return;
 
     const interval = setInterval(() => {
@@ -36,63 +47,89 @@ function App() {
           const task = response.data;
           setStatus(task.status);
           if (task.state === 'SUCCESS') {
-            const filename = task.result.split(/\/|\\/).pop(); // Handle both path separators
+            const filename = task.result.split(/\/|\\/).pop();
             setResultUrl(`${API_BASE_URL}/api/outputs/${filename}`);
-            setTaskId('');
+            if (primaryTaskId) {
+              setOriginalTaskId(primaryTaskId);
+              setPrimaryTaskId('');
+            }
+            if (adjustmentTaskId) {
+              setAdjustmentTaskId('');
+              setIsAdjusting(false);
+            }
             clearInterval(interval);
           } else if (task.state === 'FAILURE') {
             setError(`Processing failed: ${task.status}`);
-            setTaskId('');
+            setPrimaryTaskId('');
+            setAdjustmentTaskId('');
+            setIsAdjusting(false);
             clearInterval(interval);
           }
         })
         .catch(err => {
           console.error("Error fetching status:", err);
           setError('Could not get task status from the backend.');
-          setTaskId('');
+          setPrimaryTaskId('');
+          setAdjustmentTaskId('');
+          setIsAdjusting(false);
           clearInterval(interval);
         });
     }, 2000);
-
     return () => clearInterval(interval);
-  }, [taskId]);
+  }, [primaryTaskId, adjustmentTaskId]);
 
-  const handleFileChange = (event) => {
-    setFile(event.target.files[0]);
+  const handleFileChange = (e) => {
+    setFile(e.target.files[0]);
     setStatus('File selected. Ready to slushify.');
     setError('');
     setResultUrl('');
+    setOriginalTaskId('');
   };
 
-  const handlePresetChange = (event) => {
-    setSelectedPreset(event.target.value);
+  const handlePresetChange = (e) => {
+    setSelectedPreset(e.target.value);
   };
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    if (!file) {
-      setError('Please select a file first.');
-      return;
-    }
-
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!file) { setError('Please select a file first.'); return; }
     const formData = new FormData();
     formData.append('file', file);
     formData.append('preset', selectedPreset);
-
     setStatus('Uploading...');
     setError('');
     setResultUrl('');
-
+    setOriginalTaskId('');
     try {
       const response = await axios.post(`${API_BASE_URL}/api/slushify`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      setTaskId(response.data.task_id);
+      setPrimaryTaskId(response.data.task_id);
       setStatus('Processing... (this may take a while)');
     } catch (err) {
       console.error("Error uploading file:", err);
-      setError('File upload failed. Please check the console for details.');
+      setError('File upload failed.');
       setStatus('Upload failed.');
+    }
+  };
+
+  const handleAdjust = async (baseTaskId, effectName, effectParams) => {
+    if (!baseTaskId || isAdjusting) return;
+
+    setIsAdjusting(true);
+    setStatus(`Applying ${effectName} adjustment...`);
+    setError('');
+
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/adjust/${baseTaskId}`, {
+        effect_name: effectName,
+        effect_params: effectParams,
+      });
+      setAdjustmentTaskId(response.data.task_id);
+    } catch (err) {
+      console.error("Error adjusting effect:", err);
+      setError('Adjustment failed.');
+      setIsAdjusting(false);
     }
   };
 
@@ -103,40 +140,24 @@ function App() {
         <p>Upload your audio track and get a slushified version.</p>
       </header>
       <main>
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label htmlFor="file-upload">1. Choose Audio File</label>
-            <input id="file-upload" type="file" accept="audio/*" onChange={handleFileChange} />
-          </div>
-          <div className="form-group">
-            <label htmlFor="preset-select">2. Select a Preset</label>
-            <select id="preset-select" value={selectedPreset} onChange={handlePresetChange} disabled={!Object.keys(presets).length}>
-              {Object.entries(presets).map(([name, description]) => (
-                <option key={name} value={name}>{name} - {description}</option>
-              ))}
-            </select>
-          </div>
-          <button type="submit" disabled={!file || taskId}>
-            {taskId ? 'Processing...' : 'Slushify!'}
-          </button>
-        </form>
-        <div className="status-section">
-          <h2>Status</h2>
-          <p>{status}</p>
-          {error && <p className="error">Error: {error}</p>}
-          {resultUrl && (
-            <div className="result">
-              <h3>Your track is ready!</h3>
-              <a href={resultUrl} download target="_blank" rel="noopener noreferrer">
-                Download Slushed Track
-              </a>
-              <br />
-              <audio controls src={resultUrl}>
-                Your browser does not support the audio element.
-              </audio>
-            </div>
-          )}
-        </div>
+        <UploadForm
+          file={file}
+          presets={presets}
+          selectedPreset={selectedPreset}
+          taskId={primaryTaskId || adjustmentTaskId}
+          handleFileChange={handleFileChange}
+          handlePresetChange={handlePresetChange}
+          handleSubmit={handleSubmit}
+        />
+        <StatusDisplay status={status} error={error} />
+        {resultUrl && (
+          <ResultDisplay
+            resultUrl={resultUrl}
+            originalTaskId={originalTaskId}
+            handleAdjust={handleAdjust}
+            isAdjusting={isAdjusting}
+          />
+        )}
       </main>
     </div>
   );
