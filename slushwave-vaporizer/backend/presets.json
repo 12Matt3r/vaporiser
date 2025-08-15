@@ -1,6 +1,10 @@
 {
   "slushwave": {
-    "description": "The classic slowed, pitched-down, and reverbed sound.",
+    "description": "The classic slowed, pitched-down, and reverbed sound on a loop.",
+    "loop_detection": {
+      "enabled": true,
+      "duration_seconds": 10
+    },
     "speed_ratio": 0.75,
     "pitch_shift": -75,
     "lowpass_cutoff": 3500,
@@ -10,8 +14,24 @@
     "bass_boost": null,
     "compand": true
   },
+  "lofi": {
+    "description": "Slowed down, filtered, and compressed for a chill, lo-fi hip hop feel.",
+    "loop_detection": {
+      "enabled": true,
+      "duration_seconds": 8
+    },
+    "speed_ratio": 0.85,
+    "pitch_shift": -50,
+    "lowpass_cutoff": 4000,
+    "no_reverb": true,
+    "phaser": false,
+    "tremolo": false,
+    "bass_boost": 4,
+    "compand": true
+  },
   "nightcore": {
     "description": "A faster, higher-pitched version of a track.",
+    "loop_detection": { "enabled": false },
     "speed_ratio": 1.25,
     "pitch_shift": 300,
     "lowpass_cutoff": null,
@@ -23,6 +43,7 @@
   },
   "chopped_and_screwed": {
     "description": "An extremely slowed-down version with a prominent tremolo effect.",
+    "loop_detection": { "enabled": false },
     "speed_ratio": 0.6,
     "pitch_shift": -200,
     "lowpass_cutoff": 4000,
@@ -31,5 +52,29 @@
     "phaser": false,
     "tremolo": true,
     "compand": true
+  },
+  "bass_boost": {
+    "description": "Applies a significant bass boost.",
+    "loop_detection": { "enabled": false },
+    "speed_ratio": null,
+    "pitch_shift": null,
+    "lowpass_cutoff": null,
+    "no_reverb": true,
+    "phaser": false,
+    "tremolo": false,
+    "bass_boost": 8,
+    "compand": false
+  },
+  "bass_boost_extreme": {
+    "description": "Applies an extreme bass boost.",
+    "loop_detection": { "enabled": false },
+    "speed_ratio": null,
+    "pitch_shift": null,
+    "lowpass_cutoff": null,
+    "no_reverb": true,
+    "phaser": false,
+    "tremolo": false,
+    "bass_boost": 15,
+    "compand": false
   }
 }

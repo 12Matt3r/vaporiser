@@ -5,9 +5,10 @@ import numpy as np
 import json
 import os
 import uuid
-import effects # Import the new module
+import effects
+import soundfile as sf
 
-# --- Preset Loading ---
+# ... (load_presets and analyze_audio are the same) ...
 def load_presets():
     """Loads presets from presets.json"""
     preset_path = os.path.join(os.path.dirname(__file__), 'presets.json')
@@ -17,9 +18,7 @@ def load_presets():
     except FileNotFoundError:
         print(f"ERROR: presets.json not found at {preset_path}")
         return {}
-
 PRESETS = load_presets()
-
 def analyze_audio(input_path):
     """Analyzes an audio file to extract musical features."""
     try:
@@ -35,10 +34,51 @@ def analyze_audio(input_path):
         print(f"Error during audio analysis: {e}")
         return None
 
+def find_and_extract_loop(input_path, output_dir, duration_seconds=10):
+    """
+    Finds a suitable loop in an audio file and saves it.
+    Returns the path to the extracted loop file.
+    """
+    try:
+        y, sr = librosa.load(input_path, sr=None) # Load with original sample rate
+
+        # A simple heuristic: find the loudest section of the song.
+        # This often corresponds to a chorus or other high-energy part.
+        frame_length = int(duration_seconds * sr)
+
+        # Calculate RMSE (Root-Mean-Square Energy) for each frame
+        rmse = librosa.feature.rms(y=y, frame_length=frame_length, hop_length=frame_length//2)[0]
+
+        # Find the frame with the maximum energy
+        # We start searching 30 seconds in to avoid intros.
+        start_frame_search = librosa.time_to_frames(30, sr=sr, hop_length=frame_length//2)
+        if len(rmse) > start_frame_search:
+            best_frame_index = np.argmax(rmse[start_frame_search:]) + start_frame_search
+        else:
+            best_frame_index = np.argmax(rmse)
+
+        # Get start and end samples of the best loop
+        start_sample = librosa.frames_to_samples(best_frame_index, hop_length=frame_length//2)
+        end_sample = start_sample + frame_length
+
+        # Ensure the loop doesn't exceed the track length
+        end_sample = min(end_sample, len(y))
+
+        loop_data = y[start_sample:end_sample]
+
+        # Save the loop to a new file
+        loop_path = os.path.join(output_dir, f"loop_{uuid.uuid4()}.wav")
+        sf.write(loop_path, loop_data, sr)
+
+        return loop_path
+    except Exception as e:
+        print(f"Error during loop detection: {e}")
+        # If loop detection fails, return the original file path to process the whole song
+        return input_path
+
 def process_audio(input_path, output_path, options=None):
     """
-    Applies a chain of audio effects to the input file by calling
-    individual effect functions. Manages temporary files for the chain.
+    Applies a chain of audio effects to the input file.
     """
     if options is None:
         options = {}
@@ -53,13 +93,26 @@ def process_audio(input_path, output_path, options=None):
     current_input = input_path
 
     def get_temp_file():
-        # Using .wav for intermediate files is often more stable with SoX
         temp_path = os.path.join(os.path.dirname(output_path), f"temp_{uuid.uuid4()}.wav")
         temp_files.append(temp_path)
         return temp_path
 
     try:
-        # Dynamically build the chain of effects to apply
+        # --- New: Loop Detection Step ---
+        loop_config = options.get('loop_detection', {})
+        if loop_config.get('enabled', False):
+            print("Loop detection enabled. Finding loop...")
+            loop_duration = loop_config.get('duration_seconds', 10)
+            output_dir_for_loop = os.path.dirname(output_path)
+
+            looped_file_path = find_and_extract_loop(current_input, output_dir_for_loop, loop_duration)
+
+            # If a new loop file was created, use it as the input
+            if looped_file_path != current_input:
+                current_input = looped_file_path
+                temp_files.append(looped_file_path) # Ensure it gets cleaned up
+
+        # Dynamically build the chain of effects
         effect_chain = []
         if options.get('bass_boost'): effect_chain.append(('bass_boost', {'gain': options['bass_boost']}))
         if options.get('pitch_shift'): effect_chain.append(('pitch_shift', {'shift': options['pitch_shift']}))
@@ -73,7 +126,6 @@ def process_audio(input_path, output_path, options=None):
         if not options.get('no_reverb', False): effect_chain.append(('reverb', {}))
 
         if not effect_chain:
-            # If no effects, just copy the file
             import shutil
             shutil.copy(current_input, output_path)
             return output_path
@@ -82,10 +134,8 @@ def process_audio(input_path, output_path, options=None):
         for i, (effect_name, params) in enumerate(effect_chain):
             is_last_effect = (i == len(effect_chain) - 1)
             current_output = output_path if is_last_effect else get_temp_file()
-
             effect_func = getattr(effects, f"apply_{effect_name}")
             effect_func(current_input, current_output, **params)
-
             current_input = current_output
 
     finally:
