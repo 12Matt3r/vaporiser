@@ -5,20 +5,20 @@ function ResultDisplay({ resultUrl, originalTaskId, handleAdjust, isAdjusting })
     return null;
   }
 
+  const onSpeedChange = (e) => {
+    handleAdjust(originalTaskId, 'speed', { ratio: parseFloat(e.target.value) });
+  };
+
+  const onPitchChange = (e) => {
+    handleAdjust(originalTaskId, 'pitch_shift', { shift: parseInt(e.target.value, 10) });
+  };
+
+  const onLowpassChange = (e) => {
+    handleAdjust(originalTaskId, 'lowpass', { cutoff: parseInt(e.target.value, 10) });
+  };
+
   const onBassChange = (e) => {
     handleAdjust(originalTaskId, 'bass_boost', { gain: parseInt(e.target.value, 10) });
-  };
-
-  const onPhaserChange = (e) => {
-    handleAdjust(originalTaskId, 'phaser', {}); // Phaser in backend takes no params
-  };
-
-  const onReverbChange = (e) => {
-    // This is tricky. The backend has `no_reverb`.
-    // So if checkbox is checked, we want `no_reverb: false`.
-    // This requires a different API design.
-    // For now, I'll assume we can just re-apply reverb.
-    handleAdjust(originalTaskId, 'reverb', {});
   };
 
   return (
@@ -35,20 +35,27 @@ function ResultDisplay({ resultUrl, originalTaskId, handleAdjust, isAdjusting })
 
       <div className="post-processing">
         <h4>Fine-Tune Effects {isAdjusting && '(Processing adjustment...)'}</h4>
+
+        <div className="slider-group">
+            <label>Speed (0.5x - 1.5x)</label>
+            <input type="range" min="0.5" max="1.5" step="0.05" defaultValue="1.0" onChange={onSpeedChange} disabled={isAdjusting} />
+        </div>
+
+        <div className="slider-group">
+            <label>Pitch Shift (-6 semitones to +6)</label>
+            <input type="range" min="-600" max="600" step="50" defaultValue="0" onChange={onPitchChange} disabled={isAdjusting} />
+        </div>
+
+        <div className="slider-group">
+            <label>Low-pass Filter (1kHz - 10kHz)</label>
+            <input type="range" min="1000" max="10000" step="100" defaultValue="10000" onChange={onLowpassChange} disabled={isAdjusting} />
+        </div>
+
         <div className="slider-group">
             <label>Bass Boost (0-15 dB)</label>
-            <input
-              type="range"
-              min="0"
-              max="15"
-              defaultValue="0"
-              onChange={onBassChange}
-              disabled={isAdjusting}
-            />
+            <input type="range" min="0" max="15" defaultValue="0" onChange={onBassChange} disabled={isAdjusting} />
         </div>
-        {/* The simple on/off for phaser/reverb is more complex than a slider.
-            I will leave them out for now to focus on the bass boost slider,
-            which is a better proof of concept for the adjustment logic. */}
+
       </div>
     </div>
   );
