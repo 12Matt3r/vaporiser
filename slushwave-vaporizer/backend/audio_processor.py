@@ -8,7 +8,6 @@ import uuid
 import effects
 import soundfile as sf
 
-# ... (load_presets and analyze_audio are the same) ...
 def load_presets():
     """Loads presets from presets.json"""
     preset_path = os.path.join(os.path.dirname(__file__), 'presets.json')
@@ -19,17 +18,39 @@ def load_presets():
         print(f"ERROR: presets.json not found at {preset_path}")
         return {}
 PRESETS = load_presets()
+
 def analyze_audio(input_path):
-    """Analyzes an audio file to extract musical features."""
+    """
+    Analyzes an audio file to extract a fingerprint of musical features.
+    """
     try:
-        y, sr = librosa.load(input_path)
+        y, sr = librosa.load(input_path, sr=None)
+
+        # --- Basic Features ---
         tempo = librosa.feature.tempo(y=y, sr=sr)[0]
+
+        # --- Tonal Features ---
         chromagram = librosa.feature.chroma_stft(y=y, sr=sr)
         chroma_mean = np.mean(chromagram, axis=1)
         key_idx = np.argmax(chroma_mean)
         notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
         key = notes[key_idx]
-        return {'tempo': round(tempo), 'key': key}
+
+        # --- Spectral Features ---
+        spec_centroid = librosa.feature.spectral_centroid(y=y, sr=sr)
+        spec_bandwidth = librosa.feature.spectral_bandwidth(y=y, sr=sr)
+
+        # --- Loudness ---
+        rms = librosa.feature.rms(y=y)[0]
+        avg_loudness = np.mean(rms)
+
+        return {
+            'tempo': round(float(tempo)),
+            'key': key,
+            'brightness': round(float(np.mean(spec_centroid))), # Avg spectral centroid
+            'spectral_width': round(float(np.mean(spec_bandwidth))),
+            'avg_loudness': float(avg_loudness)
+        }
     except Exception as e:
         print(f"Error during audio analysis: {e}")
         return None
@@ -37,43 +58,24 @@ def analyze_audio(input_path):
 def find_and_extract_loop(input_path, output_dir, duration_seconds=10):
     """
     Finds a suitable loop in an audio file and saves it.
-    Returns the path to the extracted loop file.
     """
     try:
-        y, sr = librosa.load(input_path, sr=None) # Load with original sample rate
-
-        # A simple heuristic: find the loudest section of the song.
-        # This often corresponds to a chorus or other high-energy part.
+        y, sr = librosa.load(input_path, sr=None)
         frame_length = int(duration_seconds * sr)
-
-        # Calculate RMSE (Root-Mean-Square Energy) for each frame
         rmse = librosa.feature.rms(y=y, frame_length=frame_length, hop_length=frame_length//2)[0]
-
-        # Find the frame with the maximum energy
-        # We start searching 30 seconds in to avoid intros.
         start_frame_search = librosa.time_to_frames(30, sr=sr, hop_length=frame_length//2)
         if len(rmse) > start_frame_search:
             best_frame_index = np.argmax(rmse[start_frame_search:]) + start_frame_search
         else:
             best_frame_index = np.argmax(rmse)
-
-        # Get start and end samples of the best loop
         start_sample = librosa.frames_to_samples(best_frame_index, hop_length=frame_length//2)
-        end_sample = start_sample + frame_length
-
-        # Ensure the loop doesn't exceed the track length
-        end_sample = min(end_sample, len(y))
-
+        end_sample = min(start_sample + frame_length, len(y))
         loop_data = y[start_sample:end_sample]
-
-        # Save the loop to a new file
         loop_path = os.path.join(output_dir, f"loop_{uuid.uuid4()}.wav")
         sf.write(loop_path, loop_data, sr)
-
         return loop_path
     except Exception as e:
         print(f"Error during loop detection: {e}")
-        # If loop detection fails, return the original file path to process the whole song
         return input_path
 
 def process_audio(input_path, output_path, options=None):
@@ -98,21 +100,21 @@ def process_audio(input_path, output_path, options=None):
         return temp_path
 
     try:
-        # --- New: Loop Detection Step ---
+        analysis = analyze_audio(current_input)
+        if analysis:
+            print(f"Audio Analysis Results: {analysis}")
+            # In the future, this analysis will be used for style transfer.
+
         loop_config = options.get('loop_detection', {})
         if loop_config.get('enabled', False):
             print("Loop detection enabled. Finding loop...")
             loop_duration = loop_config.get('duration_seconds', 10)
             output_dir_for_loop = os.path.dirname(output_path)
-
             looped_file_path = find_and_extract_loop(current_input, output_dir_for_loop, loop_duration)
-
-            # If a new loop file was created, use it as the input
             if looped_file_path != current_input:
                 current_input = looped_file_path
-                temp_files.append(looped_file_path) # Ensure it gets cleaned up
+                temp_files.append(looped_file_path)
 
-        # Dynamically build the chain of effects
         effect_chain = []
         if options.get('bass_boost'): effect_chain.append(('bass_boost', {'gain': options['bass_boost']}))
         if options.get('pitch_shift'): effect_chain.append(('pitch_shift', {'shift': options['pitch_shift']}))
@@ -130,18 +132,14 @@ def process_audio(input_path, output_path, options=None):
             shutil.copy(current_input, output_path)
             return output_path
 
-        # Execute the chain
         for i, (effect_name, params) in enumerate(effect_chain):
             is_last_effect = (i == len(effect_chain) - 1)
             current_output = output_path if is_last_effect else get_temp_file()
             effect_func = getattr(effects, f"apply_{effect_name}")
             effect_func(current_input, current_output, **params)
             current_input = current_output
-
     finally:
-        # Cleanup temporary files
         for temp_file in temp_files:
             if os.path.exists(temp_file):
                 os.remove(temp_file)
-
     return output_path

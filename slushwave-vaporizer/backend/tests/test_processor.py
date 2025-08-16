@@ -13,24 +13,31 @@ def test_analyze_audio(mocker):
     Tests the analyze_audio function by mocking librosa calls.
     """
     # 1. Set up mock return values
-    mock_y = np.zeros(22050 * 5) # 5 seconds of silence
+    mock_y = np.zeros(22050 * 5)
     mock_sr = 22050
-    mock_tempo = np.array([120.0])
+    mocker.patch('audio_processor.librosa.load', return_value=(mock_y, mock_sr))
+
+    # Mock all the feature extraction calls
+    mocker.patch('librosa.feature.tempo', return_value=np.array([120.0]))
     mock_chroma = np.zeros((12, 100))
     mock_chroma[7, :] = 1 # Make G the dominant note
-
-    # 2. Configure mocks
-    mocker.patch('audio_processor.librosa.load', return_value=(mock_y, mock_sr))
-    mocker.patch('librosa.feature.tempo', return_value=mock_tempo)
     mocker.patch('librosa.feature.chroma_stft', return_value=mock_chroma)
+    mocker.patch('librosa.feature.spectral_centroid', return_value=np.array([[1500.0]]))
+    mocker.patch('librosa.feature.spectral_bandwidth', return_value=np.array([[2000.0]]))
+    mocker.patch('librosa.feature.rms', return_value=np.array([[0.5]]))
 
-    # 3. Call the function
+    # 2. Call the function
     result = analyze_audio('dummy_path.mp3')
 
-    # 4. Assert results
+    # 3. Assert results
     assert result is not None
     assert result['tempo'] == 120
     assert result['key'] == 'G'
+    assert result['brightness'] == 1500
+    assert result['spectral_width'] == 2000
+    assert 'avg_loudness' in result
+    assert round(result['avg_loudness'], 1) == 0.5
+
 
 def test_find_and_extract_loop(mocker):
     """
@@ -39,15 +46,10 @@ def test_find_and_extract_loop(mocker):
     # 1. Setup Mocks
     sr = 22050
     loop_duration_seconds = 5
-    # Create a dummy 40-second audio signal
     y = np.zeros(sr * 40)
-    # Make the section around 35s the loudest, to test that the search
-    # correctly starts after the 30s mark.
     y[sr * 35 : sr * 36] = 1.0
 
     mocker.patch('audio_processor.librosa.load', return_value=(y, sr))
-
-    # Mock sf.write to avoid actual file I/O
     mock_write = mocker.patch('audio_processor.sf.write')
 
     # 2. Call the function
@@ -55,17 +57,10 @@ def test_find_and_extract_loop(mocker):
 
     # 3. Assertions
     assert loop_path.startswith('/tmp/loop_')
-
-    # Check that sf.write was called
     mock_write.assert_called_once()
 
-    # Check the data that was passed to sf.write
-    # Correctly unpack the 3 arguments: path, data, samplerate
     _path, written_data, written_sr = mock_write.call_args[0]
 
-    # Assert that the extracted loop has the correct duration and sample rate
     assert len(written_data) == loop_duration_seconds * sr
     assert written_sr == sr
-
-    # Verify that the loudest part was selected. The peak we created should be in the written data.
     assert np.max(written_data) == 1.0
