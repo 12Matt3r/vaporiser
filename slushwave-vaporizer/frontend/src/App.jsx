@@ -9,19 +9,18 @@ const API_BASE_URL = 'http://127.0.0.1:5000';
 
 function App() {
   const [file, setFile] = useState(null);
+  const [referenceFile, setReferenceFile] = useState(null); // New state for reference file
   const [presets, setPresets] = useState({});
   const [selectedPreset, setSelectedPreset] = useState('');
   const [status, setStatus] = useState('Select a file to begin.');
   const [resultUrl, setResultUrl] = useState('');
   const [error, setError] = useState('');
 
-  // Task management state
   const [primaryTaskId, setPrimaryTaskId] = useState('');
   const [adjustmentTaskId, setAdjustmentTaskId] = useState('');
   const [isAdjusting, setIsAdjusting] = useState(false);
-  const [originalTaskId, setOriginalTaskId] = useState(''); // The ID of the last successful primary task
+  const [originalTaskId, setOriginalTaskId] = useState('');
 
-  // Fetch presets
   useEffect(() => {
     axios.get(`${API_BASE_URL}/api/presets`)
       .then(response => {
@@ -36,11 +35,9 @@ function App() {
       });
   }, []);
 
-  // Polling effect for BOTH primary and adjustment tasks
   useEffect(() => {
     const taskId = primaryTaskId || adjustmentTaskId;
     if (!taskId) return;
-
     const interval = setInterval(() => {
       axios.get(`${API_BASE_URL}/api/status/${taskId}`)
         .then(response => {
@@ -86,6 +83,10 @@ function App() {
     setOriginalTaskId('');
   };
 
+  const handleReferenceFileChange = (e) => {
+    setReferenceFile(e.target.files[0]);
+  };
+
   const handlePresetChange = (e) => {
     setSelectedPreset(e.target.value);
   };
@@ -96,12 +97,15 @@ function App() {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('preset', selectedPreset);
+    if (referenceFile) {
+      formData.append('reference_file', referenceFile);
+    }
     setStatus('Uploading...');
     setError('');
     setResultUrl('');
     setOriginalTaskId('');
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/slushify`, formData, {
+      const response = await axios.post(`${API_G_BASE_URL}/api/slushify`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       setPrimaryTaskId(response.data.task_id);
@@ -115,11 +119,9 @@ function App() {
 
   const handleAdjust = async (baseTaskId, effectName, effectParams) => {
     if (!baseTaskId || isAdjusting) return;
-
     setIsAdjusting(true);
     setStatus(`Applying ${effectName} adjustment...`);
     setError('');
-
     try {
       const response = await axios.post(`${API_BASE_URL}/api/adjust/${baseTaskId}`, {
         effect_name: effectName,
@@ -141,11 +143,11 @@ function App() {
       </header>
       <main>
         <UploadForm
-          file={file}
           presets={presets}
           selectedPreset={selectedPreset}
           taskId={primaryTaskId || adjustmentTaskId}
           handleFileChange={handleFileChange}
+          handleReferenceFileChange={handleReferenceFileChange}
           handlePresetChange={handlePresetChange}
           handleSubmit={handleSubmit}
         />
