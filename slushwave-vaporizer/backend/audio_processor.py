@@ -25,40 +25,29 @@ def analyze_audio(input_path):
     """
     try:
         y, sr = librosa.load(input_path, sr=None)
-
-        # --- Basic Features ---
         tempo = librosa.feature.tempo(y=y, sr=sr)[0]
-
-        # --- Tonal Features ---
         chromagram = librosa.feature.chroma_stft(y=y, sr=sr)
         chroma_mean = np.mean(chromagram, axis=1)
         key_idx = np.argmax(chroma_mean)
         notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
         key = notes[key_idx]
-
-        # --- Spectral Features ---
         spec_centroid = librosa.feature.spectral_centroid(y=y, sr=sr)
         spec_bandwidth = librosa.feature.spectral_bandwidth(y=y, sr=sr)
-
-        # --- Loudness ---
         rms = librosa.feature.rms(y=y)[0]
-        avg_loudness = np.mean(rms)
 
         return {
             'tempo': round(float(tempo)),
             'key': key,
-            'brightness': round(float(np.mean(spec_centroid))), # Avg spectral centroid
+            'brightness': round(float(np.mean(spec_centroid))),
             'spectral_width': round(float(np.mean(spec_bandwidth))),
-            'avg_loudness': float(avg_loudness)
+            'avg_loudness': float(np.mean(rms))
         }
     except Exception as e:
         print(f"Error during audio analysis: {e}")
         return None
 
 def find_and_extract_loop(input_path, output_dir, duration_seconds=10):
-    """
-    Finds a suitable loop in an audio file and saves it.
-    """
+    # ... (code is unchanged)
     try:
         y, sr = librosa.load(input_path, sr=None)
         frame_length = int(duration_seconds * sr)
@@ -78,13 +67,43 @@ def find_and_extract_loop(input_path, output_dir, duration_seconds=10):
         print(f"Error during loop detection: {e}")
         return input_path
 
-def process_audio(input_path, output_path, options=None):
+def process_audio(input_path, output_path, options=None, reference_path=None):
     """
     Applies a chain of audio effects to the input file.
+    If reference_path is provided, it will be used for style transfer.
     """
-    if options is None:
-        options = {}
+    if options is None: options = {}
 
+    # --- Style Transfer Logic ---
+    if reference_path:
+        print("Reference track provided. Performing style transfer analysis...")
+        target_analysis = analyze_audio(input_path)
+        ref_analysis = analyze_audio(reference_path)
+
+        if target_analysis and ref_analysis:
+            # Create new options based on the analysis
+            style_options = {}
+            # Match tempo
+            if target_analysis['tempo'] > 0:
+                style_options['speed_ratio'] = ref_analysis['tempo'] / target_analysis['tempo']
+            # Match brightness (map brightness to lowpass cutoff)
+            # This is a simple heuristic, can be improved.
+            # Brighter songs have higher centroid. We map this inversely to lowpass cutoff.
+            # Max brightness around 4000. Let's map it to a 2000-8000 Hz range.
+            brightness_scaled = 1 - (min(ref_analysis['brightness'], 4000) / 4000) # 0 (bright) to 1 (dark)
+            style_options['lowpass_cutoff'] = 2000 + (brightness_scaled * 6000)
+
+            # Match loudness
+            if target_analysis['avg_loudness'] > 0:
+                gain_ratio = ref_analysis['avg_loudness'] / target_analysis['avg_loudness']
+                style_options['gain_db'] = 20 * np.log10(gain_ratio)
+
+            print(f"Generated style transfer options: {style_options}")
+            options.update(style_options) # Apply style options over preset
+        else:
+            print("Style transfer analysis failed. Proceeding with default preset.")
+
+    # --- Preset Logic ---
     preset_name = options.get('preset')
     if preset_name and preset_name in PRESETS:
         base_options = PRESETS[preset_name].copy()
@@ -100,14 +119,8 @@ def process_audio(input_path, output_path, options=None):
         return temp_path
 
     try:
-        analysis = analyze_audio(current_input)
-        if analysis:
-            print(f"Audio Analysis Results: {analysis}")
-            # In the future, this analysis will be used for style transfer.
-
         loop_config = options.get('loop_detection', {})
         if loop_config.get('enabled', False):
-            print("Loop detection enabled. Finding loop...")
             loop_duration = loop_config.get('duration_seconds', 10)
             output_dir_for_loop = os.path.dirname(output_path)
             looped_file_path = find_and_extract_loop(current_input, output_dir_for_loop, loop_duration)
@@ -117,6 +130,7 @@ def process_audio(input_path, output_path, options=None):
 
         effect_chain = []
         if options.get('bass_boost'): effect_chain.append(('bass_boost', {'gain': options['bass_boost']}))
+        # ... (rest of the effect chain logic is the same)
         if options.get('pitch_shift'): effect_chain.append(('pitch_shift', {'shift': options['pitch_shift']}))
         if options.get('oops'): effect_chain.append(('oops', {}))
         if options.get('tremolo'): effect_chain.append(('tremolo', {'freq': 500, 'depth': 50}))

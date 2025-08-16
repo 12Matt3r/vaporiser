@@ -38,12 +38,25 @@ def slushify():
     preset = request.form.get('preset', 'slushwave')
     if file.filename == '':
         return jsonify(error="No selected file"), 400
+
     if file:
         filename = secure_filename(file.filename)
         temp_input_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{uuid.uuid4()}_{filename}")
         file.save(temp_input_path)
+
+        # Handle optional reference file
+        reference_path = None
+        if 'reference_file' in request.files:
+            reference_file = request.files['reference_file']
+            if reference_file.filename != '':
+                ref_filename = secure_filename(reference_file.filename)
+                reference_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{uuid.uuid4()}_{ref_filename}")
+                reference_file.save(reference_path)
+
         options = {'preset': preset}
-        task = slushify_task.delay(temp_input_path, filename, options)
+        # Pass the optional reference_path to the task
+        task = slushify_task.delay(temp_input_path, filename, options, reference_path)
+
         return jsonify(
             task_id=task.id,
             status_url=url_for('taskstatus', task_id=task.id, _external=True)

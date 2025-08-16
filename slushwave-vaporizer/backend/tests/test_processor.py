@@ -5,7 +5,7 @@ import numpy as np
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from audio_processor import analyze_audio, find_and_extract_loop
+from audio_processor import analyze_audio, find_and_extract_loop, process_audio
 
 
 def test_analyze_audio(mocker):
@@ -64,3 +64,33 @@ def test_find_and_extract_loop(mocker):
     assert len(written_data) == loop_duration_seconds * sr
     assert written_sr == sr
     assert np.max(written_data) == 1.0
+
+def test_process_audio_with_style_transfer(mocker):
+    """
+    Tests that process_audio correctly calculates and applies effects
+    based on a reference track.
+    """
+    # 1. Mock the analysis function to return different fingerprints
+    target_analysis = {'tempo': 100, 'brightness': 1000, 'avg_loudness': 0.5}
+    ref_analysis = {'tempo': 150, 'brightness': 3000, 'avg_loudness': 0.25}
+    mocker.patch('audio_processor.analyze_audio', side_effect=[target_analysis, ref_analysis])
+
+    # 2. Mock the _apply_fx helper to prevent any SoX calls
+    mock_apply_fx = mocker.patch('effects._apply_fx')
+
+    # 3. Call process_audio with a reference path
+    options = {'preset': 'slushwave'}
+    process_audio('target.mp3', 'output.mp3', options=options, reference_path='ref.mp3')
+
+    # 4. Assert that the helper was called for each effect in the chain
+    # The slushwave preset has several effects. Let's check a few key ones.
+
+    # The test can't easily know the intermediate filenames.
+    # A better assertion is to check the *number* of calls to the helper.
+    # The 'slushwave' preset has: speed, pitch, lowpass, phaser, compand, reverb.
+    # And the style transfer adds: gain. So 7 effects.
+    assert mock_apply_fx.call_count == 7
+
+    # We can inspect the last call to see if it wrote to the final output file
+    final_call_args = mock_apply_fx.call_args_list[-1]
+    assert final_call_args[0][1] == 'output.mp3' # outfile is the second argument

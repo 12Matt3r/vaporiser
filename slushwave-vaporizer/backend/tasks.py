@@ -19,10 +19,11 @@ celery_app.conf.beat_schedule = {
 celery_app.conf.timezone = 'UTC'
 
 @celery_app.task(bind=True)
-def slushify_task(self, input_path, original_filename, options=None):
+def slushify_task(self, input_path, original_filename, options=None, reference_path=None):
     """
     Celery task to process an audio file.
     It determines its own output path based on its task ID.
+    It now accepts an optional reference_path for style transfer.
     """
     try:
         self.update_state(state='PROGRESS', meta={'status': 'Initializing...'})
@@ -33,15 +34,22 @@ def slushify_task(self, input_path, original_filename, options=None):
         output_path = os.path.join(output_dir, output_filename)
 
         self.update_state(state='PROGRESS', meta={'status': 'Processing audio...'})
-        result_path = process_audio(input_path, output_path, options)
+        # Pass the reference_path to the audio processor
+        result_path = process_audio(input_path, output_path, options, reference_path)
 
+        # Clean up input files
         if os.path.exists(input_path):
             os.remove(input_path)
+        if reference_path and os.path.exists(reference_path):
+            os.remove(reference_path)
 
         return {'status': 'SUCCESS', 'result': result_path}
     except Exception as e:
+        # Clean up input files on failure too
         if os.path.exists(input_path):
             os.remove(input_path)
+        if reference_path and os.path.exists(reference_path):
+            os.remove(reference_path)
         raise e
 
 @celery_app.task
