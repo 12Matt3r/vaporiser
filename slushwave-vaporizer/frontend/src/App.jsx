@@ -151,7 +151,7 @@ function App() {
           handlePresetChange={handlePresetChange}
           handleSubmit={handleSubmit}
         />
-        <StatusDisplay status={status} error={error} />
+        <StatusDisplay status={status} error={error} isLoading={!!(primaryTaskId || adjustmentTaskId)} />
         {resultUrl && (
           <ResultDisplay
             resultUrl={resultUrl}

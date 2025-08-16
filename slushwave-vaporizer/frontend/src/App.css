@@ -1,42 +1,147 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
+/* General App Layout */
+.App {
+  max-width: 800px;
+  margin: 2rem auto;
   padding: 2rem;
+  background-color: #1a1a1a;
+  border-radius: 8px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.App-header {
+  text-align: center;
+  margin-bottom: 2rem;
+  border-bottom: 1px solid #444;
+  padding-bottom: 1rem;
+}
+
+.App-header h1 {
+  margin: 0;
+  color: #61dafbaa;
+}
+
+main {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+/* Form Styles */
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1.5rem;
+  border: 1px solid #333;
+  border-radius: 8px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.form-group label {
+  margin-bottom: 0.5rem;
+  font-weight: bold;
+  color: #ccc;
+}
+
+.form-group small {
+  font-size: 0.8rem;
+  color: #888;
+  margin-top: 0.25rem;
+}
+
+input[type="file"], select {
+  padding: 0.5rem;
+  border-radius: 4px;
+  border: 1px solid #444;
+  background-color: #2a2a2a;
+  color: #fff;
+}
+
+button {
+  padding: 0.8rem 1.5rem;
+  border-radius: 4px;
+  border: none;
+  background-color: #61dafbaa;
+  color: white;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+button:hover {
+  background-color: #74e1fb;
+}
+
+button:disabled {
+  background-color: #444;
+  cursor: not-allowed;
+}
+
+/* Status and Result Sections */
+.status-section, .result {
+  padding: 1.5rem;
+  border: 1px solid #333;
+  border-radius: 8px;
   text-align: center;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+.status-section h2, .result h3 {
+  margin-top: 0;
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.error {
+  color: #ff6b6b;
+  font-weight: bold;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+.result a {
+  display: inline-block;
+  margin-top: 1rem;
+  padding: 0.8rem 1.5rem;
+  background-color: #007bff;
+  color: white;
+  text-decoration: none;
+  border-radius: 4px;
 }
 
-.card {
-  padding: 2em;
+/* Post-Processing Controls */
+.post-processing {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid #444;
 }
 
-.read-the-docs {
-  color: #888;
+.slider-group {
+  margin: 1rem 0;
+  text-align: left;
+}
+
+.slider-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.slider-group input[type="range"] {
+  width: 100%;
+}
+
+/* Loading Spinner */
+.loader {
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #61dafbaa;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+  margin: 1rem auto;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
